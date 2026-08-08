@@ -1,8 +1,3 @@
-(* MVP goal:
-   - retrieve/update security database (in a persistent directory)
-   - check an existing opam switch for vulnerable packages that are installed
-*)
-
 let ( let* ) = Result.bind
 
 type package = {
@@ -87,23 +82,25 @@ let search_in ~gt sw advisories =
   Logs.app (fun m -> m "Looking for vulnerable packages in switch %s" (OpamSwitch.to_string sw));
   let selections = OpamSwitchState.load_selections ~lock_kind:`Lock_read gt sw in
   let installed = selections.sel_installed in
-  let found = ref false in
+  let found = ref 0 in
   List.iter (fun (id, summ, pkgs) ->
       List.iter (fun pkg ->
           let inter = OpamPackage.Set.inter installed pkg in
           if OpamPackage.Set.is_empty inter then
             ()
           else begin
-            found := true;
+            incr found;
             OpamPackage.Set.iter (fun pkg ->
-                Logs.warn (fun m -> m "%s has the known vulnerability %s: %s" (OpamPackage.to_string pkg) id summ))
+                Logs.warn (fun m -> m "%s has the known vulnerability %s: %s (read full advisory https://osv.dev/vulnerability/%s)"
+                              (OpamPackage.to_string pkg) id summ id))
               inter
           end)
         pkgs)
     advisories;
-  if !found then Error (`Msg "found a vulnerability")
+  if !found > 0 then
+    Error (`Msg (Fmt.str "Found %u vulnerabilit%s" !found (if !found = 1 then "y" else "ies")))
   else begin
-    Logs.app (fun m -> m "Went through %u advisories, couldn't find a vulnerable package"
+    Logs.app (fun m -> m "Great, no known vulnerabilities found  through %u advisories"
                  (List.length advisories));
     Ok ()
   end
