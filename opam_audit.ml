@@ -141,11 +141,15 @@ let setup_log =
         $ Fmt_cli.style_renderer ()
         $ Logs_cli.level ())
 
+let exits =
+    Cmd.Exit.info ~doc:"on vulnerability finding(s)." 1 ::
+    Cmd.Exit.defaults
+
 let cmd =
-  let info = Cmd.info "opam-audit" ~version:"%%VERSION_NUM%%"
+  let info = Cmd.info "opam-audit" ~version:"%%VERSION_NUM%%" ~exits
   and term =
     Term.(term_result (const jump $ setup_log))
   in
   Cmd.v info term
 
-let () = exit (Cmd.eval cmd)
+let () = exit (Cmd.eval ~term_err:1 cmd)
