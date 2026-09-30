@@ -78,10 +78,7 @@ let get_advisories () =
          let* thing = decode_one_advisory path in
          Ok (thing :: acc)) (Ok []) git_repo)
 
-let search_in ~gt sw advisories =
-  Logs.app (fun m -> m "Looking for vulnerable packages in switch %s" (OpamSwitch.to_string sw));
-  let selections = OpamSwitchState.load_selections ~lock_kind:`Lock_read gt sw in
-  let installed = selections.sel_installed in
+let search advisories installed =
   let found = ref 0 in
   List.iter (fun (id, summ, pkgs) ->
       List.iter (fun pkg ->
@@ -105,16 +102,36 @@ let search_in ~gt sw advisories =
     Ok ()
   end
 
-let jump () =
+let jump () switch_export =
   OpamSystem.init ();
-  OpamGlobalState.with_ `Lock_none @@ fun gt ->
-  let gt = OpamGlobalState.fix_switch_list gt in
-  let current =
-    match OpamStateConfig.load ~lock_kind:`Lock_read (OpamStateConfig.opamroot ()) with
-    | Some t -> OpamFile.Config.switch t
-    | None -> None
+  let* installed =
+    match switch_export with
+    | Some file ->
+      let switch_in = OpamFile.make (OpamFilename.of_string file) in
+      let sw_exp = OpamFile.SwitchExport.read switch_in in
+      Logs.app (fun m -> m "Looking for vulnerable packages in switch export file %s" file);
+      Ok sw_exp.OpamFile.SwitchExport.selections.OpamTypes.sel_installed
+    | None ->
+      OpamGlobalState.with_ `Lock_none @@ fun gt ->
+      let gt = OpamGlobalState.fix_switch_list gt in
+      let current =
+        match OpamStateConfig.load ~lock_kind:`Lock_read (OpamStateConfig.opamroot ()) with
+        | Some t -> OpamFile.Config.switch t
+        | None -> None
+      in
+      let cur_dir = OpamStateConfig.get_current_switch_from_cwd gt.root in
+      let* sw =
+        match cur_dir, current with
+        | None, None ->
+          Logs.err (fun m -> m "no switch!");
+          Error (`Msg "couldn't find switch")
+        | Some sw, _ -> Ok sw
+        | None, Some sw -> Ok sw
+      in
+      Logs.app (fun m -> m "Looking for vulnerable packages in switch %s" (OpamSwitch.to_string sw));
+      let selections = OpamSwitchState.load_selections ~lock_kind:`Lock_read gt sw in
+      Ok selections.sel_installed
   in
-  let cur_dir = OpamStateConfig.get_current_switch_from_cwd gt.root in
   let* advisories = get_advisories () in
   let advisories =
     let to_pkg_set (name, vs) =
@@ -122,12 +139,7 @@ let jump () =
     in
     List.map (fun (id, summ, vs) -> id, summ, List.map to_pkg_set vs) advisories
   in
-  match cur_dir, current with
-  | None, None ->
-    Logs.err (fun m -> m "no switch!");
-    Error (`Msg "couldn't find switch")
-  | Some sw, _ -> search_in ~gt sw advisories
-  | None, Some sw -> search_in ~gt sw advisories
+  search advisories installed
 
 let setup_log style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
@@ -141,6 +153,10 @@ let setup_log =
         $ Fmt_cli.style_renderer ()
         $ Logs_cli.level ())
 
+let switch_export =
+  let doc = "Switch export file." in
+  Arg.(value & opt (some file) None & info [ "switch-export" ] ~doc)
+
 let exits =
     Cmd.Exit.info ~doc:"on vulnerability finding(s)." 1 ::
     Cmd.Exit.defaults
@@ -148,7 +164,7 @@ let exits =
 let cmd =
   let info = Cmd.info "opam-audit" ~version:"%%VERSION_NUM%%" ~exits
   and term =
-    Term.(term_result (const jump $ setup_log))
+    Term.(term_result (const jump $ setup_log $ switch_export))
   in
   Cmd.v info term
 
