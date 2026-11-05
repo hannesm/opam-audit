@@ -107,6 +107,7 @@ let search_in ~gt sw advisories =
 
 let jump () =
   OpamSystem.init ();
+  OpamStateConfig.update ~root_dir:(OpamStateConfig.opamroot ()) ();
   OpamGlobalState.with_ `Lock_none @@ fun gt ->
   let gt = OpamGlobalState.fix_switch_list gt in
   let current =
