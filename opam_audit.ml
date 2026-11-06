@@ -7,7 +7,7 @@ type package = {
 let make_package name = { name }
 
 type affected = {
-  package : package ;
+  package : package option ;
   versions : string list option ;
 }
 
@@ -20,7 +20,7 @@ let affected_json =
     |> Jsont.Object.finish
   in
   Jsont.Object.map ~kind:"affected" make_affected
-  |> Jsont.Object.mem "package" package_json ~enc:(fun { package ; _ } -> package)
+  |> Jsont.Object.mem "package" Jsont.(option package_json) ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun { package ; _ } -> package)
   |> Jsont.Object.mem "versions" Jsont.(option (list string)) ~dec_absent:None ~enc_omit:Option.is_none ~enc:(fun { versions ; _ } -> versions)
   |> Jsont.Object.finish
 
@@ -43,14 +43,14 @@ let decode_one_advisory file =
   let* content = Bos.OS.File.read file in
   let* osv =
     Result.map_error (fun s -> `Msg s)
-      (Jsont_bytesrw.decode_string osv_json content)
+      (Jsont_bytesrw.decode_string ~file:(Fpath.to_string file) osv_json content)
   in
   let id, summary, vs =
     osv.id, osv.summary,
     List.filter_map (fun aff ->
-        match aff.versions with
-        | None | Some [] -> None
-        | Some versions -> Some (aff.package.name, versions))
+        match aff.package, aff.versions with
+        | None, _ | _, None | _, Some [] -> None
+        | Some package, Some versions -> Some (package.name, versions))
       osv.affected
   in
   Ok (id, summary, vs)
@@ -97,7 +97,7 @@ let search advisories installed =
   if !found > 0 then
     Error (`Msg (Fmt.str "Found %u vulnerabilit%s" !found (if !found = 1 then "y" else "ies")))
   else begin
-    Logs.app (fun m -> m "Great, no known vulnerabilities found  through %u advisories"
+    Logs.app (fun m -> m "Great, no known vulnerabilities found, looked into %u advisories"
                  (List.length advisories));
     Ok ()
   end
