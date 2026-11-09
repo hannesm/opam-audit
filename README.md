@@ -11,3 +11,12 @@ When a vulnerable package is found, `opam-audit` reports the affected package to
 ## Execution
 
 `opam-audit`
+
+## License
+
+It is licensed under the AGPL-3.0 or later.
+
+## AI
+
+Contributions involving AI must comply with the rules set out [here](./AI.md).
+If they do not comply, we reserve the right to reject your contribution.
